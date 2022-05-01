@@ -1,0 +1,10 @@
+html/
+addr/
+
+urls.pkl
+urls.txt
+cases.pkl
+cases.txt
+ShCase.log
+
+**/*.pyc
