@@ -11,7 +11,6 @@ History:
 import re
 import datetime
 import pickle
-import pathlib
 import pprint
 import argparse
 import logging
@@ -20,6 +19,7 @@ import requests
 import numpy as np
 import pandas as pd
 
+from pathlib import Path
 from urllib.parse import urljoin
 from lxml import html as html_tree
 
@@ -42,7 +42,7 @@ def get_html(url, **kwargs):
 def save_page(url, path, **kwargs):
     encoding, text = get_html(url, **kwargs)
     if text:
-        return pathlib.Path(path).write_text(text, encoding=encoding)
+        return Path(path).write_text(text, encoding=encoding)
     else:
         return 0
 
@@ -52,7 +52,7 @@ def get_tree(url, **kwargs):
     if isinstance(url, str) and url.startswith('http'):
         encoding, text = get_html(url, **kwargs)
     else:
-        text = pathlib.Path(url).read_bytes()
+        text = Path(url).read_bytes()
     if text:
         return html_tree.fromstring(text)
     else:
@@ -183,7 +183,7 @@ def daily_data(date, url):
 
 
 def load_pickle(path):
-    path = pathlib.Path(path)
+    path = Path(path)
     if path.exists():
         return pickle.loads(path.read_bytes())
     else:
@@ -191,7 +191,7 @@ def load_pickle(path):
 
 
 def save_pickle(path, obj, txt=True, encoding=None, protocol=pickle.HIGHEST_PROTOCOL):
-    path = pathlib.Path(path)
+    path = Path(path)
     path.write_bytes(pickle.dumps(obj, protocol=protocol))
     if txt:
         path.with_suffix('.txt').write_text(pprint.pformat(obj), encoding=encoding)
@@ -220,7 +220,7 @@ def update_urls(path, start_date, end_date):
 
 
 def update_cases(path, urls, cache_dir):
-    cache_dir = pathlib.Path(cache_dir)
+    cache_dir = Path(cache_dir)
     cache_dir.mkdir(exist_ok=True)
     cases = load_pickle(path) or {}
     changed = False
@@ -303,7 +303,7 @@ def save_addr(save_to, df, engine='odf'):
 
 
 def save_report(save_to, cases):
-    path = pathlib.Path(save_to)
+    path = Path(save_to)
     path.mkdir(exist_ok=True)
     dists = [
         '黄浦区', '徐汇区', '长宁区', '静安区', '普陀区', '虹口区', '杨浦区','宝山区', 
@@ -328,22 +328,25 @@ def save_report(save_to, cases):
 
 
 def clean(target):
-    import shutil
-    def rm_files(paths):
-        for x in paths:
-            pathlib.Path(x).unlink(missing_ok=True)
+    import os, shutil
+    def rm(paths):
+        if isinstance(paths, str) or isinstance(paths, Path):
+            paths = [paths]
+        for path in [Path(x) for x in paths if os.path.exists(x)]:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
     if target == 'all':
-        shutil.rmtree('html')
-        shutil.rmtree('addr')
-        rm_files(['urls.pkl', 'urls.txt', 'cases.pkl', 'cases.txt'])
+        rm(['html', 'addr', 'urls.pkl', 'urls.txt', 'cases.pkl', 'cases.txt'])
     elif target == 'url':
-        rm_files(['urls.pkl', 'urls.txt'])
+        rm(['urls.pkl', 'urls.txt'])
     elif target == 'case':
-        rm_files(['cases.pkl', 'cases.txt'])
+        rm(['cases.pkl', 'cases.txt'])
     elif target == 'html':
-        shutil.rmtree('html')
+        rm('html')
     elif target == 'addr':
-        shutil.rmtree('addr')
+        rm('addr')
 
 
 def setup_logger(level, filename, fmt=None, encoding='utf8'):
@@ -397,9 +400,9 @@ def main(path, args):
 if __name__ == '__main__':
     import sys
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        fullpath = pathlib.Path(sys.executable)
+        fullpath = Path(sys.executable)
     else:
-        fullpath = pathlib.Path(__file__).resolve()
+        fullpath = Path(__file__).resolve()
     
     args = setup_args()
     setup_logger(args.loglevel, fullpath.with_suffix('.log'))
@@ -409,3 +412,5 @@ if __name__ == '__main__':
         main(fullpath, args)
     except Exception as ex:
         logging.error(str(ex))
+    finally:
+        logging.info('End\n')
