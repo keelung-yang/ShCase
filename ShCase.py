@@ -48,6 +48,7 @@ def save_page(url, path, **kwargs):
 
 
 def get_tree(url, **kwargs):
+    logging.info(f'Downloading {url}')
     if isinstance(url, str) and url.startswith('http'):
         encoding, text = get_html(url, **kwargs)
     else:
@@ -60,7 +61,7 @@ def get_tree(url, **kwargs):
 
 def daily_url(start_date, end_date):
     if start_date > end_date:
-        start_date, end_date = end_date, start_date
+        raise Exception(f'{start_date=} > {end_date=}')
     page = 0; base = 'https://wsjkw.sh.gov.cn'
     while True:
         page += 1
@@ -197,10 +198,19 @@ def save_pickle(path, obj, txt=True, encoding=None, protocol=pickle.HIGHEST_PROT
 
 
 def update_urls(path, start_date, end_date):
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
     urls = load_pickle(path) or {}
     dates = sorted(urls.keys())
-    if dates and (start_date >= dates[0] and end_date <= dates[-1]):
-        return urls
+    if dates:
+        old = dates[0]; new = dates[-1]
+        if start_date >= old and end_date <= new:
+            return urls
+        if start_date >= old and start_date <= new:
+            start_date = new
+        if end_date >= old and end_date <= new:
+            end_date = old
+    logging.info(f'Downloading urls from {start_date} to {end_date}')
     if new_urls := daily_url(start_date, end_date):
         urls |= {x[0]: (x[1], x[2]) for x in new_urls}
         save_pickle(path, urls)
