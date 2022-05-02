@@ -287,6 +287,7 @@ def save_addr(save_to, df, engine='odf'):
     with pd.ExcelWriter(save_to, engine=engine) as writer:
         df1, df2 = daily_addr(df)
         df1.to_excel(writer, sheet_name='日增统计')
+        df.to_excel(writer, sheet_name='日增明细')
         df2.to_excel(writer, sheet_name='净增明细')
 
         addr_list = [x.strip() for x in df.values.flatten() if pd.notnull(x)]
@@ -309,10 +310,14 @@ def save_report(save_to, cases):
         '浦东新区', '闵行区', '嘉定区', '金山区', '松江区', '青浦区', '奉贤区', '崇明区'
     ]
     dists = {k:[] for k in dists}
-    for _, (sh, districts) in cases.items():
+    for _, (sh, districts) in sorted(cases.items()):
         for name, (case, ignore), addr in districts:
             date = sh[0]
-            col = f'{date.month}.{date.day} ({len(addr)})'
+            if addr:
+                density = f'({case}+{ignore})/{len(addr)}={(case+ignore)/len(addr):.1f}'
+            else:
+                density = f'({case}+{ignore})={case+ignore}'
+            col = f'{date.month}.{date.day} {density}'
             dists[name].append((col, addr))   # name: (date, addr_list)
     for name in dists:
         logging.info(f'Generating address report of {name}')
