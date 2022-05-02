@@ -349,7 +349,7 @@ def clean(target):
         rm('addr')
 
 
-def setup_logger(level, filename, fmt=None, encoding='utf8'):
+def setup_logger(filename, level, fmt=None, encoding='utf8'):
     datefmt='%Y-%m-%d %H:%M:%S'
     fmt = fmt if fmt else '%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s'
     fmtter = logging.Formatter(fmt=fmt, datefmt=datefmt)
@@ -357,21 +357,23 @@ def setup_logger(level, filename, fmt=None, encoding='utf8'):
     fileHandler.setFormatter(fmtter)
     consoleHandler = logging.StreamHandler()
     consoleHandler.setFormatter(fmtter)
-    logging.basicConfig(handlers=[fileHandler, consoleHandler], level=level)
+    handlers = [fileHandler, consoleHandler]
+    logging.basicConfig(handlers=handlers, level=level)
     logging.captureWarnings(True)
+    return handlers
 
 
-def setup_args():
+def parse_args():
     parser = argparse.ArgumentParser(description='Shanghai COVID-19 2022')
-    parser.add_argument('-s', "--startdate",
+    parser.add_argument('-s', '--startdate',
         type=datetime.date.fromisoformat,
         default=datetime.date(2022, 2, 21),
-        help="The Start Date - format YYYY-MM-DD",
+        help='Start date (YYYY-MM-DD)',
     )
-    parser.add_argument('-e', "--enddate",
+    parser.add_argument('-e', '--enddate',
         type=datetime.date.fromisoformat,
         default=datetime.date.today(),
-        help="The End Date format YYYY-MM-DD (Inclusive)",
+        help='End date (YYYY-MM-DD, Inclusive)',
     )
     parser.add_argument('-c', '--clean',
         choices=['url', 'case', 'html', 'addr', 'log', 'all'],
@@ -386,12 +388,16 @@ def setup_args():
 
 
 def main(path, args):
+    log_path = path.with_suffix('.log')
     if args.clean:
         clean(args.clean)
         if args.clean in ['log', 'all']:
-            logging.shutdown()
-            path.with_suffix('.log').unlink(missing_ok=True)
+            log_path.unlink(missing_ok=True)
+            print(args)
         return
+    setup_logger(log_path, args.loglevel)
+    logging.info(str(args))
+
     urls = update_urls('urls.pkl', args.startdate, args.enddate)
     cases = update_cases('cases.pkl', urls, 'html')
     save_report('addr', cases)
@@ -404,11 +410,8 @@ if __name__ == '__main__':
     else:
         fullpath = Path(__file__).resolve()
     
-    args = setup_args()
-    setup_logger(args.loglevel, fullpath.with_suffix('.log'))
-    logging.info(str(args))
-
     try:
+        args = parse_args()
         main(fullpath, args)
     except Exception as ex:
         logging.error(str(ex))
