@@ -5,7 +5,8 @@ Shanghai COVID-19 2022
 Usage:
    ./ShCase.py --help
 History:
-    1. Initial creation. 2022-05-01
+    1. Initial creation, 2022-05-01
+    2. Extract text by element path, 2022-05-05
 '''
 
 import re
@@ -107,16 +108,87 @@ def sh_summary(text):
 
 
 def district_detail(lines):
-    if indices := [i for i in range(len(lines)) if re.search(r'已对相关居住地落实(终末)*消毒', lines[i])]:
-        lines = lines[:indices[0]]
-    if lines and (m := re.search(r'\d+年\d+月\d+日，(([^区]+)区)', lines[0])):
-        name = m.groups()[0]
-        new_case = 0; new_ignore = 0
-        if m := re.search(r'(\d+)例本土(新冠肺炎)*确诊', lines[0]):
-            new_case = int(m.group(1))
-        if m := re.search(r'(\d+)例本土无症状', lines[0]):
-            new_ignore = int(m.group(1))
-        return name, (new_case, new_ignore), lines[1:]
+    dist_name = lines[0]
+    new_case = 0; new_ignore = 0
+    if m := re.search(r'(\d+)例本土(新冠肺炎)*确诊', lines[1]):
+        new_case = int(m.group(1))
+    elif m := re.search(r'(\d+)例本土新冠病例', lines[1]):
+        new_case = int(m.group(1))
+    elif m := re.search(r'(\d+)例新冠肺炎本土确诊', lines[1]):
+        new_case = int(m.group(1))
+    if m := re.search(r'(\d+)例(本土)*无症状', lines[1]):
+        new_ignore = int(m.group(1))
+    endp = r'已(对相关居住地)*落实(终末)*消毒'
+    if re.search(endp, lines[1]):
+        return dist_name, (new_case, new_ignore), []
+    for i in range(2, len(lines)):
+        if re.search(endp, lines[i]):
+            return dist_name, (new_case, new_ignore), lines[2:i]
+    return dist_name, (new_case, new_ignore), lines[2:]
+
+
+def extract_text(date, root):
+    dists = []
+    ns = {'re': 'http://exslt.org/regular-expressions'}
+    xpath = '//strong[re:match(.//text(), "(区\s*)$")]'
+    if heads := [x for x in root.xpath(xpath, namespaces=ns)]:
+        head = heads[0]
+        nav = f'{head.getparent().tag}/{head.getparent().getparent().tag}'
+        if nav == 'p/div':
+            if date == datetime.date(2022, 4, 2):   # Fix duplicated content in official page
+                dup_node = root.xpath('./p/span[starts-with(text(), "市卫健委今早")]')[-1]
+                for x in dup_node.getparent().xpath('./following-sibling::*'):
+                    x.getparent().remove(x)
+                dup_node.getparent().remove(dup_node)
+            lines = head.xpath('../../p')
+            heads = [x.getparent() for x in heads]
+            indices = [i for i in range(len(lines)) if lines[i] in heads]
+            indices = [0] + indices + [None]
+            dists = [lines[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
+            dists = [[x.text_content() for x in dist] for dist in dists]
+        elif nav == 'span/section':
+            dists = [[root.xpath('./section[1]//section/p[1]')[0].text_content()]]
+            if date == datetime.date(2022, 4, 1):
+                dists += [x.xpath('../../../following-sibling::*//text()') for x in heads]
+            else:
+                for x in heads:
+                    if dist := x.xpath('../../../../../../../following-sibling::*//text()'):
+                        dists.append(dist)
+                    elif dist := x.xpath('../../../../../../../../following-sibling::*//text()'):
+                        dists.append(dist)
+                    else:
+                        raise Exception(f'Failed to find data for {x.text_content()}')
+        elif nav == 'section/section':
+            dists = [[root.xpath('./section[1]//section/p[1]')[0].text_content()]]
+            dists += [x.xpath('../../../../../../following-sibling::*//text()') for x in heads]
+
+    # Strip lines
+    for i in range(len(dists)):
+        dists[i] = [re.sub(r'^[\s，。、\xa0]+|[\s，。、\xa0]+$', '', x) for x in dists[i]]
+        dists[i] = [x for x in dists[i] if x]
+    
+    # Set dist[0], dist[1] = dist_name, dist_summary
+    for i in range(1, len(dists)):
+        dist_name = heads[i-1].text_content()
+        if dists[i][0] == '（滑动查看更多↓）':
+            dists[i][0] = dist_name
+        if m := re.search(r'^(\d+年\d+月\d+日)', dists[i][0]):
+            if m.group(0) == dists[i][0] and dists[i][1].startswith(dist_name):
+                dists[i][0] = dists[i][0] + '，' + dists[i][1]
+                dists[i].pop(1)
+            elif dists[i][0].endswith(dist_name) or dists[i][0].endswith(dist_name[:-1]):
+                dists[i][0] = dists[i][0] + dists[i][1]
+                dists[i].pop(1)
+            dists[i].insert(0, dist_name)
+    
+    # Fix missing year
+    for dist in dists[1:]:
+        if m := re.search(r'^(\d+年)?(\d+月\d+日)(（?0-24时）?)?', dist[1]):
+            if m.group(1) is None:
+                dist[1] = f'{date.year}年{dist[1]}'
+            if m.group(3):
+                dist[1] = re.sub(r'^(\d+年\d+月\d+日)(（?0-24时）?)', r'\1', dist[1])
+    return dists
 
 
 def daily_data(date, url):
@@ -136,7 +208,7 @@ def daily_data(date, url):
     else:
         return sh, districts
     if date <= datetime.date(2022, 3, 6):
-        text = nodes[0].text_content()
+        text = root.text_content()
         date = date + datetime.timedelta(days=-1)
         new_case = 0; new_ignore = 0
         summary = ''
@@ -151,35 +223,16 @@ def daily_data(date, url):
         sh = (date, new_case, new_ignore, 0, 0, 0, summary)
         return sh, districts
     elif date <= datetime.date(2022, 3, 19):
-        sh = sh_summary(nodes[0].xpath('./p[1]')[0].text_content())
+        sh = sh_summary(root.xpath('./p[1]')[0].text_content())
         return sh, districts
     else:
-        root = nodes[0]
-        if 'id' in root.attrib and root.attrib['id'] == 'js_content':   # WeChat
-            nodes = root.xpath('//section/section/section/p')
-        elif date == datetime.date(2022, 4, 1):
-            nodes = root.xpath('//section/section/section/p')
+        if dists := extract_text(date, root):
+            sh = sh_summary(dists[0][0])
+            districts = [district_detail(x) for x in dists[1:]]
+            districts = [x for x in districts if x]
+            return sh, districts
         else:
-            nodes = root.xpath('./p')
-        lines = [x.text_content() for x in nodes]
-        lines = [re.sub(r'^[\s，。、\xa0]+|[\s，。、\xa0]+$', '', x) for x in lines]
-        lines = [x for x in lines if x]
-        if date == datetime.date(2022, 3, 29):
-            for i in range(len(lines)):
-                if lines[i].startswith('2022年3月28日，奉贤无新增本土确诊病例'):
-                    lines[i] = lines[i].replace('奉贤', '奉贤区')
-        elif date == datetime.date(2022, 4, 4):
-            for i in range(len(lines)):
-                if lines[i].startswith('2022年4月3日，青浦新增3例本土确诊病例'):
-                    lines[i] = lines[i].replace('青浦', '青浦区')
-        indices = [i for i in range(len(lines)) if re.search(r'^\d+年\d+月\d+日，[^区]+区', lines[i])]
-        indices = [0] + indices + [None]
-        lines = [lines[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
-        if summary := [x for x in lines[0] if re.search(r'通报：\d+年\d+月\d+日', x)]:
-            summary = sh_summary(summary[0])
-        districts = [district_detail(x) for x in lines[1:]]
-        districts = [x for x in districts if x is not None]
-    return summary, districts
+            raise Exception(f'Failed to parse ({date}) {url}')
 
 
 def load_pickle(path):
@@ -235,7 +288,7 @@ def update_cases(path, urls, cache_dir):
             changed = True
             cases[date] = (sh, districts)
             # date, case, ignore, transfer, ctrl_case, ctrl_ignore, out_case, out_ignore
-            logging.info(f'{str(sh[0]), sh[1:-1]}, {sh[1]-sh[3]-sh[4]}, {sh[2]-sh[5]}')
+            logging.info(f'{sh[0]}, {sh[1:-1]}, ({sh[1]-sh[3]-sh[4]}, {sh[2]-sh[5]})')
         else:
             logging.warning(f'No data found on {date}')
     if changed:
@@ -306,8 +359,8 @@ def save_report(save_to, cases):
     path = Path(save_to)
     path.mkdir(exist_ok=True)
     dists = [
-        '黄浦区', '徐汇区', '长宁区', '静安区', '普陀区', '虹口区', '杨浦区','宝山区', 
-        '浦东新区', '闵行区', '嘉定区', '金山区', '松江区', '青浦区', '奉贤区', '崇明区'
+        '浦东新区', '黄浦区', '静安区', '徐汇区', '长宁区', '普陀区', '虹口区', '杨浦区', 
+        '宝山区', '闵行区', '嘉定区', '金山区', '松江区', '青浦区', '奉贤区', '崇明区'
     ]
     dists = {k:[] for k in dists}
     for _, (sh, districts) in sorted(cases.items()):
@@ -409,7 +462,7 @@ if __name__ == '__main__':
         fullpath = Path(sys.executable)
     else:
         fullpath = Path(__file__).resolve()
-    
+
     try:
         args = parse_args()
         main(fullpath, args)
