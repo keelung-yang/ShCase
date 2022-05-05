@@ -269,6 +269,12 @@ def update_urls(path, start_date, end_date):
         save_pickle(path, urls)
     else:
         logging.warning(f'No data published from {start_date} to {end_date}')
+    # Fix missing 4.9-4.11 address infomations in https://wsjkw.sh.gov.cn/xwfb/index.html
+    urls |= {
+        datetime.date(2022, 4, 10): ('https://mp.weixin.qq.com/s/_Je5_5_HqBcs5chvH5SFfA', '4月9日（0-24时）本市各区确诊病例、无症状感染者居住地信息'),
+        datetime.date(2022, 4, 11): ('https://mp.weixin.qq.com/s/u0XfHF8dgfEp8vGjRtcwXA', '4月10日（0-24时）本市各区确诊病例、无症状感染者居住地信息 '),
+        datetime.date(2022, 4, 12): ('https://mp.weixin.qq.com/s/vxFiV2HeSvByINUlTmFKZA', '4月11日（0-24时）本市各区确诊病例、无症状感染者居住地信息 '),
+    }
     return urls
 
 
