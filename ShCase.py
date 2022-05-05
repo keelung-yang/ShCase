@@ -335,9 +335,9 @@ def daily_addr(df):
     return df_summary, df_detail
 
 
-def save_addr(save_to, df, engine='odf'):
+def save_addr(save_to, df):
     days = df.shape[1]
-    with pd.ExcelWriter(save_to, engine=engine) as writer:
+    with pd.ExcelWriter(save_to) as writer:
         df1, df2 = daily_addr(df)
         df1.to_excel(writer, sheet_name='日增统计')
         df.to_excel(writer, sheet_name='日增明细')
@@ -355,7 +355,7 @@ def save_addr(save_to, df, engine='odf'):
         df4.to_excel(writer, sheet_name='工地排序')
 
 
-def save_report(save_to, cases):
+def save_report(save_to, cases, engine=None):
     path = Path(save_to)
     path.mkdir(exist_ok=True)
     dists = [
@@ -377,7 +377,7 @@ def save_report(save_to, cases):
         data = dict(dists[name])
         df = pd.DataFrame.from_dict(data=data, orient='index').transpose()
         df.index += 1
-        save_addr(f'{save_to}/{name}.ods', df)
+        save_addr(f'{save_to}/{name}.{"ods" if engine == "odf" else "xlsx"}', df)
 
 
 def clean(target):
@@ -428,6 +428,11 @@ def parse_args():
         default=datetime.date.today(),
         help='End date (YYYY-MM-DD, Inclusive)',
     )
+    parser.add_argument('-ss', '--spreadsheet',
+        type=str,
+        default='odf',
+        help='Spreadsheet engine for Pandas DataFrame',
+    )
     parser.add_argument('-c', '--clean',
         choices=['url', 'case', 'html', 'addr', 'log', 'all'],
         help='Clean local data'
@@ -453,7 +458,7 @@ def main(path, args):
 
     urls = update_urls('urls.pkl', args.startdate, args.enddate)
     cases = update_cases('cases.pkl', urls, 'html')
-    save_report('addr', cases)
+    save_report('addr', cases, args.spreadsheet)
 
 
 if __name__ == '__main__':
@@ -467,6 +472,6 @@ if __name__ == '__main__':
         args = parse_args()
         main(fullpath, args)
     except Exception as ex:
-        logging.error(str(ex))
+        logging.exception(str(ex))
     finally:
-        logging.info('End\n')
+        logging.info('Done\n')
