@@ -46,6 +46,6 @@ options:
 | urls(.pkl .txt)  | URLs in pickle and pprint formatted data  |
 | cases(.pkl .txt) | Cases in pickle and pprint formatted data |
 | html             | Downloaded html pages                     |
-| addr             | Address reports                           |
+| reports          | Spreadsheet reports                       |
 | ShCase.py        | Main script                               |
 | ShCase.log       | Logging file                              |

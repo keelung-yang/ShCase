@@ -458,7 +458,7 @@ def main(path, args):
 
     urls = update_urls('urls.pkl', args.startdate, args.enddate)
     cases = update_cases('cases.pkl', urls, 'html')
-    save_report('addr', cases, args.spreadsheet)
+    save_report('reports', cases, args.spreadsheet)
 
 
 if __name__ == '__main__':
