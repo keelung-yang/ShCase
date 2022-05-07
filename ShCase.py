@@ -7,6 +7,7 @@ Usage:
 History:
     1. Initial creation, 2022-05-01
     2. Extract text by element path, 2022-05-05
+    3. Report case numbers in detail, 2022-05-08
 '''
 
 import re
@@ -49,7 +50,6 @@ def save_page(url, path, **kwargs):
 
 
 def get_tree(url, **kwargs):
-    logging.info(f'Downloading {url}')
     if isinstance(url, str) and url.startswith('http'):
         encoding, text = get_html(url, **kwargs)
     else:
@@ -67,6 +67,7 @@ def daily_url(start_date, end_date):
     while True:
         page += 1
         url = urljoin(base, '/xwfb/index{}.html'.format(f'_{page}' if page > 1 else ''))
+        logging.info(f'Downloading {url}')
         if (tree := get_tree(url)) is None:
             break
         for span in tree.xpath('//body/div/div/div/div/ul/li/span[@class="time"]'):
@@ -86,39 +87,53 @@ def daily_url(start_date, end_date):
                 return
 
 
-def sh_summary(text):
-    lines = [x for x in text.split('，') if not ('境外' in x or re.fullmatch(r'\D+', x))]
-    date = re.findall(r'通报：(\d+)年(\d+)月(\d+)日', lines[0])[0]
+def case_numbers(text):
+    if (i := text.find('新增境外')) > 0:
+        text = text[:i]
+    date = re.findall(r'通报：(\d+)年(\d+)月(\d+)日', text)[0]
     date = datetime.date(*map(int, date))
-    new_case = int(re.findall(r'^新增本土新冠肺炎确诊病例(\d+)', lines[1])[0])
-    new_ignore = int(re.findall(r'无症状感染者(\d+)例$', lines[1])[0])
-    others = ' '.join(lines[2:])
-    transfer = 0; ctrl_case = 0; ctrl_ignore = 0
-    if m := re.search(r'(\d+)例确诊病例为(此前|既往)无症状感染者转归', others):
+    new_case, new_ignore, transfer, ctrl_case, ctrl_ignore = 0, 0, 0, 0, 0
+    if m:= re.search(r'新增本土新冠肺炎确诊病例(\d+)[例]?(（.*?）)?和无症状感染者(\d+)例', text):
+        new_case = int(m.group(1)); new_ignore = int(m.group(3))
+    elif m:= re.search(r'新增本土新冠肺炎确诊病例(\d+)例', text):
+        new_case = int(m.group(1))
+    if new_ignore ==  0 and (m := re.search(r'新增本土无症状感染者(\d+)例', text)):
+        new_ignore = int(m.group(1))
+    if m := re.search(r'(\d+)例(本土)?确诊病例为(此前|既往)[的]?无症状感染者转归', text):
         transfer = int(m.group(1))
-    elif m := re.search(r'无症状感染者转为确诊病例(\d+)例', lines[1]):
+    elif m := re.search(r'无症状感染者转为确诊病例(\d+)例', text):
         transfer = int(m.group(1))
-    elif m := re.search(r'(\d+)例由无症状感染者转为确诊病例', lines[1]):
+    elif m := re.search(r'(\d+)例由无症状感染者转为确诊病例', text):
         transfer = int(m.group(1))
-    if m := re.search(r'(\d+)例(本土)*确诊病例\S+在隔离管控中', others):
-        ctrl_case = int(m.group(1))
-    if m := re.search(r'(\d+)例无症状感染者\S*在隔离管控中', others):
-        ctrl_ignore = int(m.group(1))
-    return date, new_case, new_ignore, transfer, ctrl_case, ctrl_ignore, text
+    if m := re.search(r'(\d+)例(本土)?确诊病例和(\d+)例无症状感染者在隔离管控中发现', text):
+        ctrl_case = int(m.group(1)); ctrl_ignore = int(m.group(3))
+    elif m := re.search(r'(\d+)例无症状感染者在相关风险人群排查中发现，其余在隔离管控中发现', text):
+        ctrl_case = new_case; ctrl_ignore = new_ignore - int(m.group(1))
+    elif m := re.search(r'(\d+)例无症状感染者在例行筛查中发现，其余在隔离管控中发现', text):
+        ctrl_case = new_case; ctrl_ignore = new_ignore - int(m.group(1))
+    elif m := re.search(r'(\d+)例病例因症就诊发现，其余在隔离管控中发现', text):
+        ctrl_case = new_case - int(m.group(1)); ctrl_ignore = new_ignore
+    elif m := re.search(r'，均在隔离管控中发现', text):
+        ctrl_case = new_case; ctrl_ignore = new_ignore
+    else:
+        logging.warning(f'No insulated case found on {date}')
+    return date, new_case, new_ignore, transfer, ctrl_case, ctrl_ignore
 
 
 def district_detail(lines):
     dist_name = lines[0]
     new_case = 0; new_ignore = 0
-    if m := re.search(r'(\d+)例本土(新冠肺炎)*确诊', lines[1]):
+    if m := re.search(r'(\d+)例本土(新冠肺炎)?确诊', lines[1]):
         new_case = int(m.group(1))
     elif m := re.search(r'(\d+)例本土新冠病例', lines[1]):
         new_case = int(m.group(1))
     elif m := re.search(r'(\d+)例新冠肺炎本土确诊', lines[1]):
         new_case = int(m.group(1))
-    if m := re.search(r'(\d+)例(本土)*无症状', lines[1]):
+    elif m := re.search(r'(\d+)例本土确诊病例', lines[1]):
+        new_case = int(m.group(1))
+    if m := re.search(r'(\d+)例(本土)?无症状', lines[1]):
         new_ignore = int(m.group(1))
-    endp = r'已(对相关居住地)*落实(终末)*消毒'
+    endp = r'已(对相关居住地)?落实(终末)?消毒'
     if re.search(endp, lines[1]):
         return dist_name, (new_case, new_ignore), []
     for i in range(2, len(lines)):
@@ -161,33 +176,41 @@ def extract_text(date, root):
         elif nav == 'section/section':
             dists = [[root.xpath('./section[1]//section/p[1]')[0].text_content()]]
             dists += [x.xpath('../../../../../../following-sibling::*//text()') for x in heads]
+            if date == datetime.date(2022, 4, 25):
+                dists[-1] = [''.join(dists[-1][:3])]
 
     # Strip lines
     for i in range(len(dists)):
         dists[i] = [re.sub(r'^[\s，。、\xa0]+|[\s，。、\xa0]+$', '', x) for x in dists[i]]
         dists[i] = [x for x in dists[i] if x]
     
-    # Set dist[0], dist[1] = dist_name, dist_summary
+    # Set dist[0] = dist_name
     for i in range(1, len(dists)):
         dist_name = heads[i-1].text_content()
         if dists[i][0] == '（滑动查看更多↓）':
             dists[i][0] = dist_name
-        if m := re.search(r'^(\d+年\d+月\d+日)', dists[i][0]):
-            if m.group(0) == dists[i][0] and dists[i][1].startswith(dist_name):
-                dists[i][0] = dists[i][0] + '，' + dists[i][1]
-                dists[i].pop(1)
-            elif dists[i][0].endswith(dist_name) or dists[i][0].endswith(dist_name[:-1]):
-                dists[i][0] = dists[i][0] + dists[i][1]
-                dists[i].pop(1)
+        elif m := re.search(r'^(\d+年)?(\d+月\d+日)', dists[i][0]):
             dists[i].insert(0, dist_name)
-    
-    # Fix missing year
+
+    # Fix missing year in summary
     for dist in dists[1:]:
         if m := re.search(r'^(\d+年)?(\d+月\d+日)(（?0-24时）?)?', dist[1]):
             if m.group(1) is None:
                 dist[1] = f'{date.year}年{dist[1]}'
             if m.group(3):
                 dist[1] = re.sub(r'^(\d+年\d+月\d+日)(（?0-24时）?)', r'\1', dist[1])
+
+    # Set dist[1] = dist_summary
+    for i in range(1, len(dists)):
+        dist_name = heads[i-1].text_content()
+        if m := re.search(r'^(\d+年\d+月\d+日)', dists[i][1]):
+            if m.group(0) == dists[i][1] and dists[i][2].startswith(dist_name):
+                dists[i][1] = dists[i][1] + '，' + dists[i][2]
+                dists[i].pop(2)
+            elif dists[i][1].endswith(dist_name) or dists[i][1].endswith(dist_name[:-1]):
+                dists[i][1] = dists[i][1] + dists[i][2]
+                dists[i].pop(2)
+
     return dists
 
 
@@ -197,6 +220,7 @@ def daily_data(date, url):
     districts: (district, (new_case, new_ignore), [address])
     '''
     sh = (); districts=[]
+    logging.info(f'Parsing {url}')
     if (tree := get_tree(url)) is None:
         return sh, districts
     # https://mp.weixin.qq.com/s/xxx or
@@ -223,11 +247,13 @@ def daily_data(date, url):
         sh = (date, new_case, new_ignore, 0, 0, 0, summary)
         return sh, districts
     elif date <= datetime.date(2022, 3, 19):
-        sh = sh_summary(root.xpath('./p[1]')[0].text_content())
+        summary = root.xpath('./p[1]')[0].text_content()
+        sh = case_numbers(summary) + (summary,)
         return sh, districts
     else:
         if dists := extract_text(date, root):
-            sh = sh_summary(dists[0][0])
+            summary = dists[0][0]
+            sh = case_numbers(summary) + (summary,)
             districts = [district_detail(x) for x in dists[1:]]
             districts = [x for x in districts if x]
             return sh, districts
@@ -364,12 +390,16 @@ def save_addr(save_to, df):
 def save_report(save_to, cases, engine=None):
     path = Path(save_to)
     path.mkdir(exist_ok=True)
+    city = []
     dists = [
         '浦东新区', '黄浦区', '静安区', '徐汇区', '长宁区', '普陀区', '虹口区', '杨浦区', 
         '宝山区', '闵行区', '嘉定区', '金山区', '松江区', '青浦区', '奉贤区', '崇明区'
     ]
     dists = {k:[] for k in dists}
     for _, (sh, districts) in sorted(cases.items()):
+        # date, case, ignore, transfer, ctrl_case, ctrl_ignore, out_case, out_ignore
+        city.append(list(sh[:-1]))
+        city[-1] += [sh[1]-sh[3]-sh[4], sh[2]-sh[5], sh[1]+sh[2]]
         for name, (case, ignore), addr in districts:
             date = sh[0]
             if addr:
@@ -377,13 +407,25 @@ def save_report(save_to, cases, engine=None):
             else:
                 density = f'({case}+{ignore})={case+ignore}'
             col = f'{date.month}.{date.day} {density}'
-            dists[name].append((col, addr))   # name: (date, addr_list)
-    for name in dists:
-        logging.info(f'Generating address report of {name}')
-        data = dict(dists[name])
-        df = pd.DataFrame.from_dict(data=data, orient='index').transpose()
-        df.index += 1
-        save_addr(f'{save_to}/{name}.{"ods" if engine == "odf" else "xlsx"}', df)
+            dists[name].append((date, case, ignore, col, addr))
+    suffix = 'ods' if str(engine).lower() == 'odf' else 'xlsx'
+    with pd.ExcelWriter(f'{save_to}/上海市.{suffix}', date_format='YYYY-MM-DD') as writer:
+        if city:
+            logging.info(f'Generating case numbers report from {city[0][0]} to {city[-1][0]}')
+            df_city = pd.DataFrame.from_records(city)
+            df_city.index += 1
+            df_city.columns = ['日期', '确诊', '无症状', '转归确诊', '隔离确诊', '隔离无症状', '排查确诊', '排查无症状', '总计']
+            df_city.to_excel(writer, sheet_name='上海市')
+        for name in dists:
+            logging.info(f'Generating address report of {name}')
+            df_dist = pd.DataFrame.from_records(x[:3] for x in dists[name])
+            df_dist.index += 1
+            df_dist.columns = ['日期', '确诊', '无症状']
+            df_dist.to_excel(writer, sheet_name=name)
+            data = dict(x[-2:] for x in dists[name])
+            df_addr = pd.DataFrame.from_dict(data=data, orient='index').transpose()
+            df_addr.index += 1
+            save_addr(f'{save_to}/{name}.{suffix}', df_addr)
 
 
 def clean(target):
