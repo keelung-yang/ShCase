@@ -36,7 +36,7 @@ options:
 * Numpy
 * Pandas
 * lxml
-* odfpy
+* odfpy | openpyxl | xlsxwriter
 
 
 ## Files

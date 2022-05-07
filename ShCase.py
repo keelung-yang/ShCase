@@ -435,8 +435,8 @@ def parse_args():
         help='End date (YYYY-MM-DD, Inclusive)',
     )
     parser.add_argument('-ss', '--spreadsheet',
-        type=str,
         default='odf',
+        choices=['odf', 'openpyxl', 'xlsxwriter'],
         help='Spreadsheet engine for Pandas DataFrame',
     )
     parser.add_argument('-c', '--clean',
