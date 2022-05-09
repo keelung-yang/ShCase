@@ -439,15 +439,15 @@ def clean(target):
             else:
                 path.unlink()
     if target == 'all':
-        rm(['html', 'addr', 'urls.pkl', 'urls.txt', 'cases.pkl', 'cases.txt'])
+        rm(['html', 'reports', 'urls.pkl', 'urls.txt', 'cases.pkl', 'cases.txt'])
     elif target == 'url':
         rm(['urls.pkl', 'urls.txt'])
     elif target == 'case':
         rm(['cases.pkl', 'cases.txt'])
     elif target == 'html':
         rm('html')
-    elif target == 'addr':
-        rm('addr')
+    elif target == 'report':
+        rm('reports')
 
 
 def setup_logger(filename, level, fmt=None, encoding='utf8'):
@@ -482,7 +482,7 @@ def parse_args():
         help='Spreadsheet engine for Pandas DataFrame',
     )
     parser.add_argument('-c', '--clean',
-        choices=['url', 'case', 'html', 'addr', 'log', 'all'],
+        choices=['url', 'case', 'html', 'report', 'log', 'all'],
         help='Clean local data'
     )
     parser.add_argument('-l', '--loglevel',
