@@ -129,15 +129,23 @@ def district_detail(lines):
         new_case = int(m.group(1))
     elif m := re.search(r'(\d+)例新冠肺炎本土确诊', lines[1]):
         new_case = int(m.group(1))
-    elif m := re.search(r'(\d+)例本土确诊病例', lines[1]):
+    elif m := re.search(r'(\d+)例(本土)?确诊病例', lines[1]):
         new_case = int(m.group(1))
-    if m := re.search(r'(\d+)例(本土)?无症状', lines[1]):
+    elif m := re.search(r'(本土)?新冠肺炎确诊病例(\d+)例', lines[1]):
+        new_case = int(m.group(2))
+    if m := re.search(r'(\d+)[例]?(本土)?无症状', lines[1]):
         new_ignore = int(m.group(1))
-    endp = r'已(对相关居住地)?落实(终末)?消毒'
-    if re.search(endp, lines[1]):
+    elif m := re.search(r'(本土)?无症状感染者(\d+)例', lines[1]):
+        new_ignore = int(m.group(2))
+    ends = [
+        r'已(对相关居住地)?落实(终末)?消毒',
+        r'其涉及的居住地无需采取封控措施',
+        r'无新增(本土)?确诊病例和(本土)无症状感染者'
+    ]
+    if [re.search(x, lines[1]) for x in ends] != [None] * len(ends):
         return dist_name, (new_case, new_ignore), []
     for i in range(2, len(lines)):
-        if re.search(endp, lines[i]):
+        if [re.search(x, lines[i]) for x in ends] != [None] * len(ends):
             return dist_name, (new_case, new_ignore), lines[2:i]
     return dist_name, (new_case, new_ignore), lines[2:]
 
