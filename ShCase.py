@@ -8,6 +8,7 @@ History:
     1. Initial creation, 2022-05-01
     2. Extract text by element path, 2022-05-05
     3. Report case numbers in detail, 2022-05-08
+    4. Report case density, 2022-05-10
 '''
 
 import re
@@ -399,30 +400,45 @@ def save_report(save_to, cases, engine=None):
     ]
     dists = {k:[] for k in dists}
     for _, (sh, districts) in sorted(cases.items()):
-        # date, case, ignore, transfer, ctrl_case, ctrl_ignore, out_case, out_ignore
+        # sh: date, case, ignore, transfer, ctrl_case, ctrl_ignore, title
+        total_numbers = sh[1] + sh[2]
+        out_case = sh[1] - sh[3] - sh[4]
+        out_ignore = sh[2] - sh[5]
+        case_percent = f'{sh[1] / total_numbers :.1%}' if total_numbers else ''
+        total_addr = sum(len(x[-1]) for x in districts)
+        density = f'{total_numbers / total_addr :.2f}' if total_addr else ''
         city.append(list(sh[:-1]))
-        city[-1] += [sh[1]-sh[3]-sh[4], sh[2]-sh[5], sh[1]+sh[2]]
+        city[-1] += [out_case, out_ignore, total_numbers, case_percent, total_addr, density]
         for name, (case, ignore), addr in districts:
             date = sh[0]
+            total = case + ignore
+            case_percent = f'{case / total :.1%}' if total else ''
+            density = f'{total / len(addr) :.2f}' if addr else ''
             if addr:
-                density = f'({case}+{ignore})/{len(addr)}={(case+ignore)/len(addr):.1f}'
+                col = f'{date.month}.{date.day} ({case}+{ignore})/{len(addr)}={density}'
             else:
-                density = f'({case}+{ignore})={case+ignore}'
-            col = f'{date.month}.{date.day} {density}'
-            dists[name].append((date, case, ignore, col, addr))
+                col = f'{date.month}.{date.day} ({case}+{ignore})={case+ignore}'
+            dists[name].append(
+                (date, case, ignore, total, case_percent, len(addr), density, col, addr)
+            )
     suffix = 'ods' if str(engine).lower() == 'odf' else 'xlsx'
     with pd.ExcelWriter(f'{save_to}/上海市.{suffix}', date_format='YYYY-MM-DD') as writer:
         if city:
             logging.info(f'Generating case numbers report from {city[0][0]} to {city[-1][0]}')
             df_city = pd.DataFrame.from_records(city)
             df_city.index += 1
-            df_city.columns = ['日期', '确诊', '无症状', '转归确诊', '隔离确诊', '隔离无症状', '排查确诊', '排查无症状', '总计']
+            df_city.columns = [
+                '日期', '确诊', '无症状', 
+                '转归确诊', '隔离确诊', '隔离无症状', '排查确诊', '排查无症状', 
+                '总计', '确诊比例', '地址个数', '阳性密度'
+            ]
             df_city.to_excel(writer, sheet_name='上海市')
         for name in dists:
             logging.info(f'Generating address report of {name}')
-            df_dist = pd.DataFrame.from_records(x[:3] for x in dists[name])
+            data = [x[:-2] for x in dists[name]]
+            df_dist = pd.DataFrame.from_records(data)
             df_dist.index += 1
-            df_dist.columns = ['日期', '确诊', '无症状']
+            df_dist.columns = ['日期', '确诊', '无症状', '总计', '确诊比例', '地址个数', '阳性密度']
             df_dist.to_excel(writer, sheet_name=name)
             data = dict(x[-2:] for x in dists[name])
             df_addr = pd.DataFrame.from_dict(data=data, orient='index').transpose()
