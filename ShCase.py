@@ -281,7 +281,7 @@ def load_pickle(path):
         return None
 
 
-def save_pickle(path, obj, txt=True, encoding=None, protocol=pickle.HIGHEST_PROTOCOL):
+def save_pickle(path, obj, txt=False, encoding=None, protocol=pickle.HIGHEST_PROTOCOL):
     path = Path(path)
     path.write_bytes(pickle.dumps(obj, protocol=protocol))
     if txt:
@@ -304,7 +304,7 @@ def update_urls(path, start_date, end_date, delay):
     logging.info(f'Downloading urls from {start_date} to {end_date}')
     if new_urls := daily_url(start_date, end_date, delay):
         urls |= {x[0]: (x[1], x[2]) for x in new_urls}
-        save_pickle(path, urls)
+        save_pickle(path, urls, txt=True, encoding='utf8')
     else:
         logging.warning(f'No data published from {start_date} to {end_date}')
     return urls
@@ -330,7 +330,7 @@ def update_cases(path, urls, cache_dir):
         else:
             logging.warning(f'No data found on {date}')
     if changed:
-        save_pickle(path, cases)
+        save_pickle(path, cases, txt=True, encoding='utf8')
     return cases
 
 
