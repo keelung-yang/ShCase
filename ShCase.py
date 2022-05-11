@@ -12,9 +12,11 @@ History:
 '''
 
 import re
+import time
 import datetime
 import pickle
 import pprint
+import random
 import argparse
 import logging
 
@@ -61,13 +63,14 @@ def get_tree(url, **kwargs):
         return None
 
 
-def daily_url(start_date, end_date):
+def daily_url(start_date, end_date, delay=(0.3, 1)):
     if start_date > end_date:
         raise Exception(f'{start_date=} > {end_date=}')
     page = 0; base = 'https://wsjkw.sh.gov.cn'
     while True:
         page += 1
-        url = urljoin(base, '/xwfb/index{}.html'.format(f'_{page}' if page > 1 else ''))
+        url = urljoin(base, '/yqtb/index{}.html'.format(f'_{page}' if page > 1 else ''))
+        time.sleep(random.uniform(*delay))
         logging.info(f'Downloading {url}')
         if (tree := get_tree(url)) is None:
             break
@@ -235,7 +238,7 @@ def daily_data(date, url):
     # https://mp.weixin.qq.com/s/xxx or
     # https://wsjkw.sh.gov.cn
     nodes = tree.xpath('//div[@id="js_content"]') or \
-            tree.xpath('//div[@class="Article_content"]')   
+            tree.xpath('//div[@class="Article_content"]')
     if nodes:
         root = nodes[0]
     else:
@@ -285,7 +288,7 @@ def save_pickle(path, obj, txt=True, encoding=None, protocol=pickle.HIGHEST_PROT
         path.with_suffix('.txt').write_text(pprint.pformat(obj), encoding=encoding)
 
 
-def update_urls(path, start_date, end_date):
+def update_urls(path, start_date, end_date, delay):
     if start_date > end_date:
         start_date, end_date = end_date, start_date
     urls = load_pickle(path) or {}
@@ -299,7 +302,7 @@ def update_urls(path, start_date, end_date):
         if end_date >= old and end_date <= new:
             end_date = old
     logging.info(f'Downloading urls from {start_date} to {end_date}')
-    if new_urls := daily_url(start_date, end_date):
+    if new_urls := daily_url(start_date, end_date, delay):
         urls |= {x[0]: (x[1], x[2]) for x in new_urls}
         save_pickle(path, urls)
     else:
@@ -494,6 +497,12 @@ def parse_args():
         default=datetime.date.today(),
         help='End date (YYYY-MM-DD, Inclusive)',
     )
+    parser.add_argument('-d', '--delay',
+        type=float,
+        nargs='+',
+        default=[0.3, 1],
+        help='A random range of delay time for downloading pages',
+    )
     parser.add_argument('-ss', '--spreadsheet',
         default='odf',
         choices=['odf', 'openpyxl', 'xlsxwriter'],
@@ -522,7 +531,11 @@ def main(path, args):
     setup_logger(log_path, args.loglevel)
     logging.info(str(args))
 
-    urls = update_urls('urls.pkl', args.startdate, args.enddate)
+    if len(args.delay) == 1:
+        delay = (0, args.delay[0])
+    else:
+        delay = tuple(args.delay[:2])
+    urls = update_urls('urls.pkl', args.startdate, args.enddate, delay)
     cases = update_cases('cases.pkl', urls, 'html')
     save_report('reports', cases, args.spreadsheet)
 
